@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MQA SLT Calculator</title>
+  <!-- Tailwind via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Prevent number inputs from showing spinners */
+    input[type=number]::-webkit-outer-spin-button,
+    input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
+    .mono { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+  <div class="max-w-6xl mx-auto p-6 space-y-6">
+    <header class="flex items-center justify-between">
+      <h1 class="text-2xl font-bold">MQA SLT Calculator</h1>
+      <div class="text-sm text-slate-500">v0.1 – single-file app (HTML + JS)</div>
+    </header>
+
+    <!-- Controls -->
+    <section class="grid md:grid-cols-4 gap-4 items-end">
+      <label class="block">
+        <span class="block text-sm font-medium">Target Total Hours</span>
+        <input id="targetHours" type="number" step="0.25" value="36" class="mt-1 w-full rounded-xl border p-2" />
+      </label>
+      <label class="block md:col-span-2">
+        <span class="block text-sm font-medium">Rounding</span>
+        <select id="rounding" class="mt-1 w-full rounded-xl border p-2">
+          <option value="0.25">Nearest 0.25 h (15 min)</option>
+          <option value="0.5">Nearest 0.5 h (30 min)</option>
+          <option value="0.01">Nearest 0.01 h (~36 sec)</option>
+        </select>
+      </label>
+      <label class="flex items-center gap-2">
+        <input id="lockExam" type="checkbox" class="w-5 h-5" checked />
+        <span class="text-sm font-medium">Lock Exam/Test hours to MQA rule</span>
+      </label>
+    </section>
+
+    <!-- Assessments table -->
+    <section class="bg-white rounded-2xl shadow p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-semibold">Assessments (input)</h2>
+        <div class="space-x-2">
+          <button id="addRow" class="rounded-xl bg-slate-900 text-white px-3 py-1.5 text-sm">Add Row</button>
+          <button id="loadExample" class="rounded-xl bg-slate-200 px-3 py-1.5 text-sm">Load Example</button>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm" id="inputTable">
+          <thead>
+            <tr class="bg-slate-100">
+              <th class="p-2 text-left">Assessment Name</th>
+              <th class="p-2 text-left">% Mark</th>
+              <th class="p-2 text-left">Type</th>
+              <th class="p-2 text-left">Mode of Execution</th>
+              <th class="p-2"></th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="flex gap-3">
+      <button id="calculate" class="rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2">Calculate</button>
+      <button id="exportCsv" class="rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2">Export CSV</button>
+      <div id="sumMarks" class="ml-auto text-sm text-slate-600"></div>
+    </section>
+
+    <!-- Results -->
+    <section id="results" class="hidden bg-white rounded-2xl shadow p-4">
+      <h2 class="font-semibold mb-3">Results</h2>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm" id="resultTable">
+          <thead>
+            <tr class="bg-slate-100">
+              <th class="p-2 text-left">Assessment</th>
+              <th class="p-2 text-right">% Mark</th>
+              <th class="p-2 text-left">Type</th>
+              <th class="p-2 text-left">Mode</th>
+              <th class="p-2 text-right">F2F Physical (h)</th>
+              <th class="p-2 text-right">F2F Online (h)</th>
+              <th class="p-2 text-right">NF2F Implementation (h)</th>
+              <th class="p-2 text-right">NF2F Independent (Prep) (h)</th>
+              <th class="p-2 text-right">Total (h)</th>
+            </tr>
+          </thead>
+          <tbody id="resultBody"></tbody>
+          <tfoot>
+            <tr class="bg-slate-50 font-semibold">
+              <td class="p-2" colspan="4">SUB-TOTAL</td>
+              <td class="p-2 text-right mono" id="sumF2FPhys">0</td>
+              <td class="p-2 text-right mono" id="sumF2FOnline">0</td>
+              <td class="p-2 text-right mono" id="sumNF2FImpl">0</td>
+              <td class="p-2 text-right mono" id="sumNF2FPrep">0</td>
+              <td class="p-2 text-right mono" id="sumTotal">0</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <p class="text-xs text-slate-500 mt-2">Rounding is applied per-cell to the nearest selected increment. When <strong>Lock Exam</strong> is enabled, exam/test hours are kept according to MQA’s rule (per‑percent split), and only non‑exam rows are scaled to meet the target total.</p>
+    </section>
+
+    <section class="text-xs text-slate-500">
+      <p><strong>Type rules (from BasicMQA_SLT):</strong></p>
+      <ul class="list-disc ml-5">
+        <li>Penulisan: 0.6 h per 1% (70% prep, 30% execution)</li>
+        <li>Penyelesaian Masalah: 0.725 h per 1% (30% prep, 70% execution)</li>
+        <li>Pembentangan: 0.10 h per 1% (75% prep, 25% execution)</li>
+        <li>Produk: 0.725 h per 1% (30% prep, 70% execution)</li>
+        <li>Ujian/Peperiksaan: 0.3375 h per 1% with fixed split using per‑percent mapping:
+          <ul class="list-disc ml-5">
+            <li>Implementation (exam sitting) = <code>0.0625 h</code> per 1%</li>
+            <li>Preparation (revision) = <code>0.275 h</code> per 1%</li>
+            <li>(At 40% this equals 2.5 h + 11 h = 13.5 h)</li>
+          </ul>
+        </li>
+      </ul>
+    </section>
+  </div>
+
+  <script>
+    const TYPES = [
+      "Penulisan",
+      "Penyelesaian Masalah",
+      "Pembentangan",
+      "Produk",
+      "Ujian / Peperiksaan",
+    ];
+    const MODES = [
+      "NF2F Asynchronous",
+      "F2F Physical",
+      "F2F Online Sync",
+    ];
+
+    // Rules
+    const RULES = {
+      "Penulisan": { hpp: 0.6, prep: 0.70, exec: 0.30, execToF2F: false },
+      "Penyelesaian Masalah": { hpp: 0.725, prep: 0.30, exec: 0.70, execToF2F: true },
+      "Pembentangan": { hpp: 0.10, prep: 0.75, exec: 0.25, execToF2F: true },
+      "Produk": { hpp: 0.725, prep: 0.30, exec: 0.70, execToF2F: true },
+      // Exam per-percent splits: impl 0.0625h, prep 0.275h (total 0.3375h per 1%)
+      "Ujian / Peperiksaan": { hpp: 0.3375, prep: 0.815, exec: 0.185, execToF2F: true, implPerPercent: 0.0625, prepPerPercent: 0.275 }
+    };
+
+    const tbody = document.getElementById('tbody');
+    const addRowBtn = document.getElementById('addRow');
+    const loadExampleBtn = document.getElementById('loadExample');
+    const calculateBtn = document.getElementById('calculate');
+    const exportCsvBtn = document.getElementById('exportCsv');
+
+    const targetHoursEl = document.getElementById('targetHours');
+    const roundingEl = document.getElementById('rounding');
+    const lockExamEl = document.getElementById('lockExam');
+    const sumMarksEl = document.getElementById('sumMarks');
+
+    function addRow(values = {}) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="p-2"><input class="w-full border rounded-lg p-1" placeholder="e.g., Assignment 1" value="${values.name||''}"></td>
+        <td class="p-2"><input class="w-28 border rounded-lg p-1 text-right" type="number" step="0.01" min="0" max="100" value="${values.mark??''}"></td>
+        <td class="p-2">${typeSelect(values.type)}</td>
+        <td class="p-2">${modeSelect(values.mode)}</td>
+        <td class="p-2 text-right"><button class="text-red-600 hover:underline" onclick="this.closest('tr').remove();updateMarkSum();">Remove</button></td>
+      `;
+      tbody.appendChild(tr);
+      updateMarkSum();
+    }
+
+    function typeSelect(val) {
+      return `<select class="w-56 border rounded-lg p-1">${TYPES.map(t=>`<option ${val===t? 'selected':''}>${t}</option>`).join('')}</select>`;
+    }
+    function modeSelect(val) {
+      return `<select class="w-48 border rounded-lg p-1">${MODES.map(m=>`<option ${val===m? 'selected':''}>${m}</option>`).join('')}</select>`;
+    }
+
+    function getRows() {
+      const rows = [];
+      [...tbody.querySelectorAll('tr')].forEach(tr => {
+        const [nameEl, markEl, typeEl, modeEl] = tr.querySelectorAll('input, select');
+        rows.push({
+          name: nameEl.value.trim(),
+          mark: parseFloat(markEl.value||'0') || 0,
+          type: typeEl.value,
+          mode: modeEl.value,
+        });
+      });
+      return rows;
+    }
+
+    function roundTo(x, step) {
+      return Math.round((x/step)) * step;
+    }
+
+    function updateMarkSum() {
+      const total = getRows().reduce((s,r)=>s+(r.mark||0),0);
+      sumMarksEl.textContent = `Total marks: ${total.toFixed(2)}%`;
+      sumMarksEl.className = `ml-auto text-sm ${Math.abs(total-100)<1e-6? 'text-emerald-600':'text-rose-600'}`;
+    }
+
+    function calculate() {
+      const rows = getRows();
+      const target = parseFloat(targetHoursEl.value||'0') || 0;
+      const step = parseFloat(roundingEl.value);
+      const lockExam = lockExamEl.checked;
+
+      // First pass: compute raw hours per rule
+      let results = rows.map(r => {
+        const rule = RULES[r.type];
+        let f2fPhys=0, f2fOnline=0, nf2fImpl=0, nf2fPrep=0;
+
+        if (r.type === 'Ujian / Peperiksaan') {
+          // Use per-percent split regardless of selected mode: implementation is F2F; prep is NF2F
+          const impl = (rule.implPerPercent || (rule.hpp*rule.exec)) * r.mark; // should be 0.0625 * %
+          const prep = (rule.prepPerPercent || (rule.hpp*rule.prep)) * r.mark; // should be 0.275 * %
+          if (r.mode === 'F2F Online Sync') f2fOnline = impl; else f2fPhys = impl; // default to Physical
+          nf2fPrep = prep;
+        } else {
+          const total = rule.hpp * r.mark;
+          const exec = total * rule.exec;
+          const prep = total * rule.prep;
+          // Execution goes according to mode; prep always NF2F Independent
+          if (r.mode === 'NF2F Asynchronous') nf2fImpl = exec;
+          else if (r.mode === 'F2F Physical') f2fPhys = exec;
+          else if (r.mode === 'F2F Online Sync') f2fOnline = exec;
+          nf2fPrep = prep;
+        }
+        const totalH = f2fPhys+f2fOnline+nf2fImpl+nf2fPrep;
+        return { ...r, f2fPhys, f2fOnline, nf2fImpl, nf2fPrep, totalH };
+      });
+
+      // If lockExam: scale only non-exam rows so that sum equals target
+      const sumRaw = results.reduce((s,r)=>s+r.totalH,0);
+      const sumExam = results.filter(r=>r.type==='Ujian / Peperiksaan').reduce((s,r)=>s+r.totalH,0);
+      let scale = 1;
+      if (target>0) {
+        if (lockExam) {
+          const sumNonExam = sumRaw - sumExam;
+          scale = sumNonExam>0 ? (target - sumExam)/sumNonExam : 1;
+        } else {
+          scale = sumRaw>0 ? target/sumRaw : 1;
+        }
+      }
+
+      results = results.map(r => {
+        const factor = (lockExam && r.type==='Ujian / Peperiksaan') ? 1 : scale;
+        return {
+          ...r,
+          f2fPhys: roundTo(r.f2fPhys*factor, step),
+          f2fOnline: roundTo(r.f2fOnline*factor, step),
+          nf2fImpl: roundTo(r.nf2fImpl*factor, step),
+          nf2fPrep: roundTo(r.nf2fPrep*factor, step),
+        };
+      }).map(r => ({
+        ...r,
+        totalH: r.f2fPhys + r.f2fOnline + r.nf2fImpl + r.nf2fPrep
+      }));
+
+      renderResults(results);
+    }
+
+    function renderResults(rows) {
+      const body = document.getElementById('resultBody');
+      const resSec = document.getElementById('results');
+      body.innerHTML = '';
+
+      let sumF2FPhys=0, sumF2FOnline=0, sumNF2FImpl=0, sumNF2FPrep=0, sumTotal=0;
+      rows.forEach(r => {
+        sumF2FPhys += r.f2fPhys; sumF2FOnline += r.f2fOnline; sumNF2FImpl += r.nf2fImpl; sumNF2FPrep += r.nf2fPrep; sumTotal += r.totalH;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="p-2">${escapeHtml(r.name)}</td>
+          <td class="p-2 text-right mono">${(r.mark||0).toFixed(2)}</td>
+          <td class="p-2">${r.type}</td>
+          <td class="p-2">${r.mode}</td>
+          <td class="p-2 text-right mono">${r.f2fPhys.toFixed(2)}</td>
+          <td class="p-2 text-right mono">${r.f2fOnline.toFixed(2)}</td>
+          <td class="p-2 text-right mono">${r.nf2fImpl.toFixed(2)}</td>
+          <td class="p-2 text-right mono">${r.nf2fPrep.toFixed(2)}</td>
+          <td class="p-2 text-right mono">${r.totalH.toFixed(2)}</td>
+        `;
+        body.appendChild(tr);
+      });
+      document.getElementById('sumF2FPhys').textContent = sumF2FPhys.toFixed(2);
+      document.getElementById('sumF2FOnline').textContent = sumF2FOnline.toFixed(2);
+      document.getElementById('sumNF2FImpl').textContent = sumNF2FImpl.toFixed(2);
+      document.getElementById('sumNF2FPrep').textContent = sumNF2FPrep.toFixed(2);
+      document.getElementById('sumTotal').textContent = sumTotal.toFixed(2);
+
+      resSec.classList.remove('hidden');
+    }
+
+    function exportCsv() {
+      const rows = document.querySelectorAll('#resultTable tr');
+      const data = [...rows].map(tr => [...tr.querySelectorAll('th,td')].map(td => '"'+td.innerText.replace(/"/g,'""')+'"').join(','));
+      const blob = new Blob([data.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'slt_results.csv'; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function escapeHtml(str){
+      return str.replace(/[&<>"]+/g, s=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[s]));
+    }
+
+    // Event handlers
+    addRowBtn.addEventListener('click', () => addRow());
+    loadExampleBtn.addEventListener('click', () => {
+      tbody.innerHTML='';
+      addRow({ name:'Assessment 1', mark:20, type:'Penulisan', mode:'NF2F Asynchronous' });
+      addRow({ name:'Assessment 2', mark:15, type:'Penyelesaian Masalah', mode:'NF2F Asynchronous' });
+      addRow({ name:'Assessment 3', mark:25, type:'Penyelesaian Masalah', mode:'NF2F Asynchronous' });
+      addRow({ name:'Final Assessment', mark:40, type:'Ujian / Peperiksaan', mode:'F2F Physical' });
+      updateMarkSum();
+    });
+    calculateBtn.addEventListener('click', calculate);
+    exportCsvBtn.addEventListener('click', exportCsv);
+
+    // Start with one blank row
+    addRow();
+  </script>
+</body>
+</html>
